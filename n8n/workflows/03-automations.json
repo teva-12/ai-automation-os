@@ -1,0 +1,936 @@
+{
+  "name": "AIOS - Automations",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 13 * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "90e2f0f4-91d2-4beb-b9b7-2e401055e2ab",
+      "name": "Morning 13:30"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "352d3b81-e207-49d7-bcfe-153bbc2a5160",
+              "name": "mode",
+              "value": "morning",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        220,
+        0
+      ],
+      "id": "904ba73a-dcf3-44c7-a00a-724594243070",
+      "name": "Mode Morning"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 22 * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        200
+      ],
+      "id": "cb0076a5-4efd-48fe-92df-f41b8e5e7537",
+      "name": "Evening 22:00"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c2b0676a-3b7c-4227-8abb-c47ced377c2a",
+              "name": "mode",
+              "value": "evening",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        220,
+        200
+      ],
+      "id": "35dd12b9-4152-403f-9200-46c3f66cff32",
+      "name": "Mode Evening"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH o AS (SELECT id, telegram_id, display_name FROM users WHERE role='owner' AND is_active=true LIMIT 1) SELECT o.telegram_id::text AS telegram_id, o.display_name, $1::text AS mode, json_build_object( 'now_cairo',to_char(now() AT TIME ZONE 'Africa/Cairo','YYYY-MM-DD HH24:MI'), 'today_schedule',(SELECT COALESCE(json_agg(x ORDER BY x.start_cairo),'[]'::json) FROM (SELECT se.title,se.session_type,to_char(se.start_at AT TIME ZONE 'Africa/Cairo','YYYY-MM-DD HH24:MI') AS start_cairo,to_char(se.end_at AT TIME ZONE 'Africa/Cairo','YYYY-MM-DD HH24:MI') AS end_cairo,se.is_fixed,se.status FROM schedule_entries se WHERE se.user_id=o.id AND se.entry_date=(now() AT TIME ZONE 'Africa/Cairo')::date AND se.status NOT IN ('skipped','moved')) x), 'tasks_today',(SELECT COALESCE(json_agg(x ORDER BY x.deadline_cairo NULLS LAST),'[]'::json) FROM (SELECT t.title, t.priority, t.status, t.category, t.subject, t.estimated_minutes, t.energy_required, to_char(t.deadline AT TIME ZONE 'Africa/Cairo','YYYY-MM-DD HH24:MI') AS deadline_cairo FROM tasks t WHERE t.user_id=o.id AND t.status IN ('pending','in_progress') AND (t.deadline AT TIME ZONE 'Africa/Cairo')::date=(now() AT TIME ZONE 'Africa/Cairo')::date LIMIT 25) x), 'tasks_overdue',(SELECT COALESCE(json_agg(x ORDER BY x.deadline_cairo NULLS LAST),'[]'::json) FROM (SELECT t.title, t.priority, t.status, t.category, t.subject, t.estimated_minutes, t.energy_required, to_char(t.deadline AT TIME ZONE 'Africa/Cairo','YYYY-MM-DD HH24:MI') AS deadline_cairo FROM tasks t WHERE t.user_id=o.id AND t.status IN ('pending','in_progress') AND t.deadline<now() AND (t.deadline AT TIME ZONE 'Africa/Cairo')::date<(now() AT TIME ZONE 'Africa/Cairo')::date LIMIT 25) x), 'tasks_no_deadline',(SELECT COALESCE(json_agg(x ORDER BY x.deadline_cairo NULLS LAST),'[]'::json) FROM (SELECT t.title, t.priority, t.status, t.category, t.subject, t.estimated_minutes, t.energy_required, to_char(t.deadline AT TIME ZONE 'Africa/Cairo','YYYY-MM-DD HH24:MI') AS deadline_cairo FROM tasks t WHERE t.user_id=o.id AND t.status IN ('pending','in_progress') AND t.deadline IS NULL LIMIT 25) x), 'upcoming_deadlines',(SELECT COALESCE(json_agg(d),'[]'::json) FROM (SELECT title,kind,is_hard,to_char(due_at AT TIME ZONE 'Africa/Cairo','YYYY-MM-DD HH24:MI') AS due_cairo FROM deadlines WHERE user_id=o.id AND due_at>=now() AND due_at<now()+interval '7 days' ORDER BY due_at LIMIT 15) d), 'active_freelance_projects',(SELECT COALESCE(json_agg(f),'[]'::json) FROM (SELECT title,client_name,priority,to_char(deadline AT TIME ZONE 'Africa/Cairo','YYYY-MM-DD HH24:MI') AS deadline_cairo FROM freelance_projects WHERE user_id=o.id AND status='active' ORDER BY deadline NULLS LAST LIMIT 10) f), 'tasks_tomorrow',(SELECT COALESCE(json_agg(x),'[]'::json) FROM (SELECT t.title, t.priority, t.category, to_char(t.deadline AT TIME ZONE 'Africa/Cairo','YYYY-MM-DD HH24:MI') AS deadline_cairo FROM tasks t WHERE t.user_id=o.id AND t.status IN ('pending','in_progress') AND (t.deadline AT TIME ZONE 'Africa/Cairo')::date=(now() AT TIME ZONE 'Africa/Cairo')::date+1 LIMIT 25) x),\n 'new_opportunities',(SELECT COALESCE(json_agg(x),'[]'::json) FROM (SELECT f.short_code AS code, f.title, m.match_score FROM opportunity_matches m JOIN freelance_opportunities f ON f.id=m.opportunity_id LEFT JOIN applications a ON a.opportunity_id=f.id AND a.user_id=o.id WHERE m.user_id=o.id AND m.created_at>now()-interval '24 hours' AND m.match_score>=COALESCE((SELECT match_threshold FROM profiles WHERE user_id=o.id),50) AND COALESCE(a.state,'') NOT IN ('IGNORED','REJECTED','EXPIRED','PROPOSAL_SUBMITTED','ACCEPTED') ORDER BY m.match_score DESC LIMIT 5) x),\n 'proposal_follow_up',(SELECT COALESCE(json_agg(x),'[]'::json) FROM (SELECT f.short_code AS code, f.title, a.state, to_char(a.updated_at AT TIME ZONE 'Africa/Cairo','YYYY-MM-DD') AS last_update FROM applications a JOIN freelance_opportunities f ON f.id=a.opportunity_id WHERE a.user_id=o.id AND a.state IN ('PROPOSAL_DRAFTED','PROPOSAL_SUBMITTED') ORDER BY a.updated_at DESC LIMIT 10) x)\n) AS result FROM o",
+        "options": {
+          "queryReplacement": "={{ [ $json.mode ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        460,
+        100
+      ],
+      "id": "1cf4b312-109d-43e4-ba59-d33138411e1a",
+      "name": "Gather Data"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.telegram_id }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        940,
+        100
+      ],
+      "id": "79b48503-89ee-43de-8c36-8233537f5385",
+      "name": "Send Brief"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 * * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        520
+      ],
+      "id": "e061633d-297e-4846-b49d-7084ae968443",
+      "name": "Hourly Deadline Check"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH o AS (SELECT id, telegram_id FROM users WHERE role='owner' AND is_active=true LIMIT 1),\nc AS (SELECT t.id, t.title, t.deadline, o.id AS user_id, o.telegram_id FROM tasks t, o WHERE t.user_id=o.id AND t.status IN ('pending','in_progress') AND t.deadline>now() AND t.deadline<=now()+interval '24 hours'),\nn AS (INSERT INTO notifications (user_id,type,importance,title,body,payload,dedupe_key,status)\n  SELECT c.user_id,'deadline',CASE WHEN c.deadline<=now()+interval '6 hours' THEN 'high' ELSE 'normal' END,c.title,'Deadline within 24h',jsonb_build_object('task_id',c.id),'task_due24:'||c.id::text,'pending' FROM c\n  ON CONFLICT DO NOTHING RETURNING id, dedupe_key)\nSELECT c.telegram_id::text AS telegram_id, n.id AS notification_id, c.title, to_char(c.deadline AT TIME ZONE 'Africa/Cairo','YYYY-MM-DD HH24:MI') AS due_cairo FROM n JOIN c ON n.dedupe_key='task_due24:'||c.id::text",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        240,
+        520
+      ],
+      "id": "012db7d3-f1cf-4b12-85d4-8d40f7a335ab",
+      "name": "Deadline Check"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.telegram_id }}",
+        "text": "={{ '⏰ تاسك ميعادها قرّب: ' + $json.title + '\\nالموعد: ' + ($json.due_cairo.endsWith('23:59') ? $json.due_cairo.slice(0,10) : $json.due_cairo) }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        520
+      ],
+      "id": "5015e6b6-a687-4ce5-94ee-82417d0bb7ac",
+      "name": "Send Deadline Alert"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE notifications SET status='sent', sent_at=now() WHERE id=$1::uuid RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ $('Deadline Check').item.json.notification_id ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        720,
+        520
+      ],
+      "id": "1ab5cb65-b888-4d42-9fbf-40f87e6098ad",
+      "name": "Mark Alert Sent"
+    },
+    {
+      "parameters": {
+        "jsCode": "const o = $input.first().json;\nconst r = o.result || {};\nconst morning = o.mode === 'morning';\nconst day = String(r.now_cairo || '').slice(0, 10);\nconst dl = (s) => !s ? '' : (String(s).endsWith('23:59') ? String(s).slice(0, 10) : String(s));\nconst pri = { urgent: '🔴', high: '🟠', medium: '🟡', low: '⚪' };\nconst stateAr = { PROPOSAL_DRAFTED: 'مسودة جاهزة', PROPOSAL_SUBMITTED: 'اتقدّم' };\nconst lim = (a, n = 8) => (Array.isArray(a) ? a : []).slice(0, n);\nconst taskLine = (t, i) => `${i + 1}. ${pri[t.priority] || ''} ${t.title}${t.deadline_cairo ? ' — ' + dl(t.deadline_cairo) : ''}`.replace('  ', ' ');\nconst out = [];\nout.push(morning ? `أهلاً يا ${o.display_name || 'محمد'} 👋 ملخص يومك (${day})` : `🌙 مراجعة آخر اليوم (${day})`);\nconst sec = (title, lines) => { if (lines.length) { out.push('', title, ...lines); } };\n\nif (morning) {\n  sec('📅 مواعيد اليوم:', lim((r.today_schedule || []).filter(s => !['sleep','rest','break'].includes(String(s.session_type || '').toLowerCase())), 10).map(s => `- ${String(s.start_cairo).slice(11, 16)}–${String(s.end_cairo).slice(11, 16)} ${s.title}`));\n  sec('⏰ متأخر:', lim(r.tasks_overdue).map(t => `- ${t.title} (${dl(t.deadline_cairo)})`));\n  sec('✅ تاسكات اليوم:', lim(r.tasks_today).map(taskLine));\n  sec('📌 ديدلاينز الأسبوع:', lim(r.upcoming_deadlines).map(x => `- ${x.title}: ${dl(x.due_cairo)}${x.is_hard ? ' (ثابت)' : ''}`));\n  sec('💼 شغلانات جديدة مناسبة:', lim(r.new_opportunities, 5).map(x => `- ${x.code} ${x.title} (${Math.round(x.match_score)}%) — قول: بروبوزال ${x.code}`));\n  sec('📝 بروبوزالات للمتابعة:', lim(r.proposal_follow_up).map(x => `- ${x.code} ${x.title} (${stateAr[x.state] || x.state}، آخر تحديث ${x.last_update})`));\n} else {\n  sec('✅ لسه متبقي النهارده:', lim(r.tasks_today).map(taskLine));\n  sec('⏰ متأخر:', lim(r.tasks_overdue).map(t => `- ${t.title} (${dl(t.deadline_cairo)})`));\n  sec('➡️ بكرة:', lim(r.tasks_tomorrow).map(taskLine));\n  sec('💼 فرص مفتوحة:', lim(r.new_opportunities, 5).map(x => `- ${x.code} ${x.title} (${Math.round(x.match_score)}%)`));\n  sec('📝 بروبوزالات للمتابعة:', lim(r.proposal_follow_up).map(x => `- ${x.code} ${x.title} (${stateAr[x.state] || x.state})`));\n}\nif (out.length === 1) out.push('', 'مفيش حاجة مسجلة عندي دلوقتي 👌');\nif (!morning) out.push('', 'ارتاح، وبكرة يوم جديد 🌿');\nreturn [{ json: { telegram_id: o.telegram_id, text: out.join('\\n').slice(0, 3900) } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        100
+      ],
+      "id": "393c5acf-d721-4cf0-8346-2b04543bbeb3",
+      "name": "Format Brief"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        900
+      ],
+      "id": "696a2e40-dec8-4272-a44f-6a1d3dc2183a",
+      "name": "Every 15 minutes"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT u.id AS user_id, u.telegram_id::text AS telegram_id,\n  (SELECT COALESCE(json_object_agg(platform, n), '{}'::json) FROM (SELECT platform, count(*) AS n FROM freelance_opportunities WHERE ingestion_source='rss' GROUP BY platform) c) AS counts\nFROM users u WHERE u.role='owner' AND u.is_active=true LIMIT 1",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        900
+      ],
+      "id": "a01ec666-621d-4a91-860c-8a9e920497f5",
+      "name": "Known Counts"
+    },
+    {
+      "parameters": {
+        "jsCode": "// EDIT THIS LIST any time (no new import needed). Public listing pages only, read-only.\n// 'pattern' = text that individual job links contain.\n// Not included on purpose: Upwork (blocks bots: use its email alerts + Mail Watcher), Fiverr (not a job board),\n// Nafezly (did not answer) and Kafiil (add them here when you have a working \"new projects\" page URL).\nconst SITES = [\n  { name: 'Mostaql',    url: 'https://mostaql.com/projects',            base: 'https://mostaql.com',         pattern: '/project/' },\n  { name: 'Khamsat',    url: 'https://khamsat.com/community/requests',  base: 'https://khamsat.com',         pattern: '/community/requests/' },\n  { name: 'Freelancer', url: 'https://www.freelancer.com/jobs/',        base: 'https://www.freelancer.com',  pattern: '/projects/' }\n];\nreturn SITES.map(s => ({ json: s }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        900
+      ],
+      "id": "90603ab7-415a-4db2-a9e7-ece3fcd34be1",
+      "name": "Sites"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "headers": {
+            "parameters": [
+              {
+                "name": "User-Agent",
+                "value": "Mozilla/5.0 (compatible; PersonalJobWatcher/1.0)"
+              },
+              {
+                "name": "Accept-Language",
+                "value": "ar,en;q=0.8"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        900
+      ],
+      "id": "de097bba-c43a-43c0-8b83-f33d9d634958",
+      "name": "Fetch Listing",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const KEYWORDS = ['.net','asp','c#','csharp','sql','database','قاعدة بيانات','قواعد بيانات','موقع','مواقع','ويب','web','website','برمجة','مبرمج','برمجي','تطبيق','api','backend','full stack','network','شبكة','شبكات','cisco','packet tracer','vlan','security','أمن','امن','سيبراني','linux','لينكس','wordpress','ووردبريس','متجر','php','laravel','react','javascript','python','سيرفر','vps','هوستنج','devops','docker','git','سكربت','script','بوت','bot','automation','اتمتة','n8n','نظام','developer','software','app'];\nconst STRONG = ['.net','asp','c#','sql','network','شبكة','شبكات','cisco','packet tracer','vlan','security','سيبراني','full stack','قاعدة بيانات','قواعد بيانات'];\nconst MAX_PER_SITE = 8, MAX_BASELINE = 60;\nconst sites = $('Sites').all();\nconst owner = $('Known Counts').first().json;\nconst counts = owner.counts || {};\nconst decode = (s) => s.replace(/&amp;/g,'&').replace(/&quot;/g,'\"').replace(/&#39;/g,\"'\").replace(/&nbsp;/g,' ');\nconst out = [];\n$input.all().forEach((it, i) => {\n  const s = sites[i].json;\n  const status = it.json.statusCode ?? 0;\n  const body = String(it.json.body ?? it.json.data ?? '');\n  const title = (body.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i) || [,''])[1];\n  // a real block page is small or has a block-page title; normal pages often just load a reCAPTCHA script\n  const blocked = /just a moment|attention required|challenge|access denied|are you a robot|verify you are human/i.test(title)\n               || (body.length < 30000 && /cf-chl|challenge-platform|captcha|are you a robot/i.test(body));\n  const anchors = [...body.matchAll(/<a\\s[^>]*href=[\"']([^\"']+)[\"'][^>]*>([\\s\\S]*?)<\\/a>/gi)]\n    .map(m => ({ href: m[1], text: decode(m[2].replace(/<[^>]+>/g,' ').replace(/\\s+/g,' ').trim()) }));\n  let cands = anchors.filter(a => a.href.includes(s.pattern) && a.text.length >= 12);\n  if (cands.length === 0) cands = anchors.filter(a => a.text.length >= 25 && !/^(#|javascript|mailto)/i.test(a.href));\n  if (status !== 200 || blocked || cands.length === 0) {\n    out.push({ json: { kind: 'site_down', site: s.name, reason: status !== 200 ? 'status ' + status : blocked ? 'blocked' : 'no links found', chat: owner.telegram_id, user_id: owner.user_id } });\n    return;\n  }\n  const baseline = !(Number(counts[s.name]) > 0);      // first successful run for this site: save silently\n  const seen = new Set(); let count = 0;\n  for (const a of cands) {\n    let href = a.href.startsWith('http') ? a.href : s.base + (a.href.startsWith('/') ? '' : '/') + a.href;\n    href = href.split('#')[0];\n    if (seen.has(href)) continue; seen.add(href);\n    const t = a.text.toLowerCase();\n    const hits = KEYWORDS.filter(k => t.includes(k));\n    const strong = STRONG.filter(k => t.includes(k));\n    if (baseline) { if (count >= MAX_BASELINE) break; }\n    else { if (hits.length === 0) continue; if (count >= MAX_PER_SITE) break; }\n    count++;\n    const score = Math.min(95, 45 + 12 * hits.length + 10 * strong.length);\n    out.push({ json: { kind: 'job', site: s.name, url: href, title: a.text.slice(0, 300), hits: hits.slice(0, 4), score, notify: !baseline && hits.length > 0, chat: owner.telegram_id, user_id: owner.user_id } });\n  }\n});\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        900
+      ],
+      "id": "31661d3c-52f9-4336-b33c-cbbe10518f18",
+      "name": "Extract"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "5425cf35-9d6a-4079-b2f8-97a267b6b126",
+              "leftValue": "={{ $json.kind === 'site_down' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1100,
+        900
+      ],
+      "id": "2271cad6-cf8f-4211-8e4b-237f8ae82598",
+      "name": "Is Down"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO notifications (user_id,type,importance,title,body,dedupe_key,status,sent_at)\nSELECT NULLIF($1::text,'')::uuid,'site_down','low',$2::text,$3::text,'site_down:'||$2::text||':'||to_char(now() AT TIME ZONE 'Africa/Cairo','YYYY-MM-DD'),'sent',now()\nWHERE $1::text <> ''\nON CONFLICT DO NOTHING RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ $json.user_id, $json.site, $json.reason ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1340,
+        740
+      ],
+      "id": "ca710958-ae67-4146-9ccd-75f5d4c7a434",
+      "name": "Down Once A Day"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Is Down').item.json.chat }}",
+        "text": "={{ '⚠️ موقع ' + $('Is Down').item.json.site + ' مش بيرد على المراقب (' + $('Is Down').item.json.reason + '). هبلغك مرة واحدة في اليوم بس.' }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_notification": "={{ $now.setZone('Africa/Cairo').hour >= 5 && $now.setZone('Africa/Cairo').hour < 13 }}"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1580,
+        740
+      ],
+      "id": "8369e3db-ea9f-4b6f-8639-3f264002fa0d",
+      "name": "Tell Site Down",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH ins AS (INSERT INTO freelance_opportunities (platform, external_id, url, title, ingestion_source, content_hash, status)\n  VALUES ($1::text, $2::text, $2::text, $3::text, 'rss', md5(lower($3::text)), 'DISCOVERED')\n  ON CONFLICT (platform, external_id) DO NOTHING RETURNING id, short_code)\nSELECT json_build_object('code', short_code, 'id', id, 'notify', $4::boolean) AS result FROM ins",
+        "options": {
+          "queryReplacement": "={{ [ $json.site, $json.url, $json.title, $json.notify ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1340,
+        1020
+      ],
+      "id": "01bb7605-9fea-4971-888b-1ae217058d64",
+      "name": "Save New"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "11ad8401-c7e7-44d6-bd12-d63fd10ac7f5",
+              "leftValue": "={{ $json.result.notify }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1580,
+        1020
+      ],
+      "id": "56952cb8-a88d-4afa-b951-1767be87c911",
+      "name": "Is Notify"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Is Down').item.json.url }}",
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "headers": {
+            "parameters": [
+              {
+                "name": "User-Agent",
+                "value": "Mozilla/5.0 (compatible; PersonalJobWatcher/1.0)"
+              },
+              {
+                "name": "Accept-Language",
+                "value": "ar,en;q=0.8"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1820,
+        960
+      ],
+      "id": "f4f26005-6d39-4940-95ce-b71b0c729224",
+      "name": "Fetch Job Page",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const strip = (h) => String(h || '').replace(/<style[\\s\\S]*?<\\/style>/gi,' ').replace(/<script[\\s\\S]*?<\\/script>/gi,' ').replace(/<nav[\\s\\S]*?<\\/nav>/gi,' ').replace(/<footer[\\s\\S]*?<\\/footer>/gi,' ')\n  .replace(/<br\\s*\\/?>/gi,'\\n').replace(/<\\/(p|div|li|h\\d|tr)>/gi,'\\n').replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/[ \\t]+/g,' ').replace(/\\n\\s*\\n+/g,'\\n').trim();\nreturn $input.all().map((it, i) => {\n  const j = $('Save New').itemMatching(i).json.result;\n  const src = $('Is Down').itemMatching(i).json;\n  const ok = (it.json.statusCode ?? 0) === 200;\n  const text = ok ? strip(it.json.body ?? it.json.data) : '';\n  return { json: { code: j.code, id: j.id, chat: src.chat, site: src.site, title: src.title, url: src.url, score: src.score, hits: src.hits, description: text.slice(0, 5000) } };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2060,
+        960
+      ],
+      "id": "6fd6b138-5982-4ff5-8d4e-e84fadc83787",
+      "name": "Clean Description"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE freelance_opportunities SET description = NULLIF($2::text,'') WHERE id = $1::uuid RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ $json.id, $json.description ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2300,
+        960
+      ],
+      "id": "23f8a0a2-95b8-47d6-aa49-c490f20b91e2",
+      "name": "Save Description"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Clean Description').item.json.chat }}",
+        "text": "={{ '🔔 شغلانة جديدة (' + $('Clean Description').item.json.site + ')\\n' + $('Clean Description').item.json.title + '\\nمطابق: ' + $('Clean Description').item.json.hits.join('، ') + '\\nالنسبة التقريبية (بالكلمات): ' + $('Clean Description').item.json.score + '%' + '\\n' + $('Clean Description').item.json.url + '\\n\\nللتحليل والبروبوزال قول: بروبوزال ' + $('Clean Description').item.json.code }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_notification": "={{ $now.setZone('Africa/Cairo').hour >= 5 && $now.setZone('Africa/Cairo').hour < 13 }}"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2540,
+        960
+      ],
+      "id": "67021f51-a321-43eb-86d6-794708338cfb",
+      "name": "Notify",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        1700
+      ],
+      "id": "c069b04e-f19c-428f-86a6-90e7231f1f99",
+      "name": "Every 6 hours"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id AS user_id, telegram_id::text AS telegram_id FROM users WHERE role='owner' AND is_active=true LIMIT 1",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        1700
+      ],
+      "id": "83f74c19-d1fd-4466-9491-fe6b25df7d12",
+      "name": "GH Owner"
+    },
+    {
+      "parameters": {
+        "url": "https://api.github.com/users/YOUR_GITHUB_USERNAME/events/public?per_page=30",
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "headers": {
+            "parameters": [
+              {
+                "name": "User-Agent",
+                "value": "AIOS-personal-watcher"
+              },
+              {
+                "name": "Accept",
+                "value": "application/vnd.github+json"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        1700
+      ],
+      "id": "b457f4c6-c005-468f-b59a-a699e28927c3",
+      "name": "GH Events",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const owner = $('GH Owner').first().json;\nconst cutoff = Date.now() - 7 * 3600 * 1000;      // last 7 hours; runs every 6 hours, duplicates are blocked by the database\nconst out = [];\nfor (const it of $input.all()) {\n  const e = it.json;\n  if (!e || !e.id || !e.type || !e.created_at) continue;\n  if (new Date(e.created_at).getTime() < cutoff) continue;\n  const repo = (e.repo && e.repo.name) || '';\n  const p = e.payload || {};\n  let text = null;\n  if (e.type === 'PushEvent') {\n    const n = p.size || (p.commits || []).length || 0;\n    const msg = ((p.commits || []).slice(-1)[0] || {}).message || '';\n    text = `🧑‍💻 GitHub: رفعت ${n || ''} commit على ${repo}` + (msg ? `\\n${msg.split('\\n')[0].slice(0, 120)}` : '');\n  } else if (e.type === 'CreateEvent' && p.ref_type === 'repository') {\n    text = `🧑‍💻 GitHub: أنشأت repo جديد ${repo}`;\n  } else if (e.type === 'PullRequestEvent') {\n    text = `🧑‍💻 GitHub: Pull Request (${p.action}) في ${repo}`;\n  } else if (e.type === 'IssuesEvent') {\n    text = `🧑‍💻 GitHub: Issue (${p.action}) في ${repo}`;\n  }\n  if (text) out.push({ json: { key: 'gh:' + e.id, text, chat: owner.telegram_id, user_id: owner.user_id } });\n}\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        1700
+      ],
+      "id": "3b2aab10-e13c-4733-b07e-3abcebb2d461",
+      "name": "GH Filter"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO notifications (user_id,type,importance,title,body,dedupe_key,status,sent_at)\nSELECT $1::uuid,'github','low',left($2::text,80),$2::text,$3::text,'sent',now()\nON CONFLICT DO NOTHING RETURNING id",
+        "options": {
+          "queryReplacement": "={{ [ $json.user_id, $json.text, $json.key ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        880,
+        1700
+      ],
+      "id": "42b79f02-ff6e-48c8-a763-c207fa26eba0",
+      "name": "GH Dedupe"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('GH Filter').item.json.chat }}",
+        "text": "={{ $('GH Filter').item.json.text }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_notification": "={{ $now.setZone('Africa/Cairo').hour >= 5 && $now.setZone('Africa/Cairo').hour < 13 }}"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1100,
+        1700
+      ],
+      "id": "adacb129-9715-4cff-8c70-c0bed0324e09",
+      "name": "GH Notify",
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Morning 13:30": {
+      "main": [
+        [
+          {
+            "node": "Mode Morning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evening 22:00": {
+      "main": [
+        [
+          {
+            "node": "Mode Evening",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mode Morning": {
+      "main": [
+        [
+          {
+            "node": "Gather Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mode Evening": {
+      "main": [
+        [
+          {
+            "node": "Gather Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gather Data": {
+      "main": [
+        [
+          {
+            "node": "Format Brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hourly Deadline Check": {
+      "main": [
+        [
+          {
+            "node": "Deadline Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deadline Check": {
+      "main": [
+        [
+          {
+            "node": "Send Deadline Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Deadline Alert": {
+      "main": [
+        [
+          {
+            "node": "Mark Alert Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Brief": {
+      "main": [
+        [
+          {
+            "node": "Send Brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 15 minutes": {
+      "main": [
+        [
+          {
+            "node": "Known Counts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Known Counts": {
+      "main": [
+        [
+          {
+            "node": "Sites",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sites": {
+      "main": [
+        [
+          {
+            "node": "Fetch Listing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Listing": {
+      "main": [
+        [
+          {
+            "node": "Extract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract": {
+      "main": [
+        [
+          {
+            "node": "Is Down",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Down Once A Day": {
+      "main": [
+        [
+          {
+            "node": "Tell Site Down",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save New": {
+      "main": [
+        [
+          {
+            "node": "Is Notify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Job Page": {
+      "main": [
+        [
+          {
+            "node": "Clean Description",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean Description": {
+      "main": [
+        [
+          {
+            "node": "Save Description",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Description": {
+      "main": [
+        [
+          {
+            "node": "Notify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Down": {
+      "main": [
+        [
+          {
+            "node": "Down Once A Day",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save New",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Notify": {
+      "main": [
+        [
+          {
+            "node": "Fetch Job Page",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Every 6 hours": {
+      "main": [
+        [
+          {
+            "node": "GH Owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GH Owner": {
+      "main": [
+        [
+          {
+            "node": "GH Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GH Events": {
+      "main": [
+        [
+          {
+            "node": "GH Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GH Filter": {
+      "main": [
+        [
+          {
+            "node": "GH Dedupe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GH Dedupe": {
+      "main": [
+        [
+          {
+            "node": "GH Notify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Africa/Cairo",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": true
+  },
+  "meta": {},
+  "tags": []
+}

@@ -1,0 +1,162 @@
+{
+  "name": "AIOS - Session Engine",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 2
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "7251e3f7-a234-403d-93af-fb940f95cc9e",
+      "name": "Every 2 minutes"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH o AS (SELECT id, telegram_id FROM users WHERE role='owner' AND is_active=true LIMIT 1),\nstale AS (UPDATE schedule_entries se SET status='skipped' FROM o WHERE se.user_id=o.id AND se.status='planned' AND se.end_at < now() - interval '30 minutes' RETURNING se.id),\nstarted AS (UPDATE schedule_entries se SET status='in_progress' FROM o WHERE se.user_id=o.id AND se.status='planned' AND se.start_at<=now() AND se.end_at>now() RETURNING se.id),\nended AS (UPDATE schedule_entries se SET status='completed', actual_minutes=COALESCE(se.actual_minutes, se.planned_minutes) FROM o WHERE se.user_id=o.id AND se.status='in_progress' AND se.end_at<=now() RETURNING se.id),\npre AS (INSERT INTO notifications (user_id,type,importance,title,payload,dedupe_key,status,sent_at)\n  SELECT o.id,'session_pre','normal',se.title,jsonb_build_object('entry_id',se.id),'sess_pre:'||se.id::text,'sent',now()\n  FROM schedule_entries se, o WHERE se.user_id=o.id AND se.status='planned' AND se.start_at>now() AND se.start_at<=now()+interval '10 minutes'\n  ON CONFLICT DO NOTHING RETURNING (payload->>'entry_id')::uuid AS entry_id),\nr AS (SELECT 'end'::text AS kind, id FROM ended UNION ALL SELECT 'start', id FROM started UNION ALL SELECT 'pre', entry_id FROM pre)\nSELECT r.kind, o.telegram_id::text AS telegram_id, se.title, se.session_type, se.is_fixed, se.objective, se.planned_minutes,\n  to_char(se.start_at AT TIME ZONE 'Africa/Cairo','HH24:MI') AS start_t, to_char(se.end_at AT TIME ZONE 'Africa/Cairo','HH24:MI') AS end_t,\n  GREATEST(0, ceil(extract(epoch FROM (se.start_at-now()))/60))::int AS mins_to_start,\n  (SELECT string_agg(t.title,'، ') FROM schedule_entry_tasks st JOIN tasks t ON t.id=st.task_id WHERE st.schedule_entry_id=se.id) AS tasks,\n  nx.next_title, nx.next_start, nx.next_end, nx.next_type, nx.next_objective\nFROM r JOIN schedule_entries se ON se.id=r.id CROSS JOIN o\nLEFT JOIN LATERAL (SELECT n.title AS next_title, to_char(n.start_at AT TIME ZONE 'Africa/Cairo','HH24:MI') AS next_start, to_char(n.end_at AT TIME ZONE 'Africa/Cairo','HH24:MI') AS next_end, n.session_type AS next_type, n.objective AS next_objective\n  FROM schedule_entries n WHERE r.kind='end' AND n.user_id=o.id AND n.id<>se.id AND n.status='planned' AND n.start_at>=se.end_at-interval '2 minutes' AND n.start_at<=now()+interval '18 hours' AND n.session_type NOT IN ('sleep','rest','break') ORDER BY n.start_at LIMIT 1) nx ON true\nORDER BY CASE r.kind WHEN 'end' THEN 0 WHEN 'start' THEN 1 ELSE 2 END, se.start_at",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        240,
+        0
+      ],
+      "id": "b5d6190c-6a7b-4811-99d7-7cdac8cc330a",
+      "name": "Tick"
+    },
+    {
+      "parameters": {
+        "jsCode": "const SILENT_TYPES = ['sleep', 'rest', 'break'];\nconst mins = (n) => n === 1 ? 'دقيقة' : n === 2 ? 'دقيقتين' : (n >= 3 && n <= 10) ? n + ' دقايق' : n + ' دقيقة';\nconst out = [];\nfor (const it of $input.all()) {\n  const r = it.json;\n  if (SILENT_TYPES.includes(String(r.session_type || '').toLowerCase())) continue;\n  const fixed = r.is_fixed === true || r.is_fixed === 't';\n  const span = `🕒 من ${r.start_t} إلى ${r.end_t}`;\n  const lines = [];\n  if (r.kind === 'pre') {\n    lines.push(r.mins_to_start <= 0 ? `⏳ دلوقتي: ${r.title}` : `⏳ بعد ${mins(r.mins_to_start)}: ${r.title}`, span);\n    if (r.objective) lines.push(`🎯 ${r.objective}`);\n    if (r.tasks) lines.push(`📌 ${r.tasks}`);\n  } else if (r.kind === 'start') {\n    if (fixed) {\n      lines.push(`🏫 دلوقتي: ${r.title}`, span);\n    } else {\n      lines.push(`📚 بدأت جلسة: ${r.title}`, `${span}${r.planned_minutes ? ' (' + mins(r.planned_minutes) + ')' : ''}`);\n      if (r.objective) lines.push(`🎯 ${r.objective}`);\n      if (r.tasks) lines.push(`📌 ${r.tasks}`);\n      lines.push('ركّز، وأنا هبلغك لما تخلص.');\n    }\n  } else if (r.kind === 'end') {\n    lines.push(`✅ خلصت: ${r.title}`);\n    if (r.next_title) {\n      lines.push(`➡️ الجاية: ${r.next_title}`, `🕒 من ${r.next_start} إلى ${r.next_end}`);\n      if (r.next_objective) lines.push(`🎯 ${r.next_objective}`);\n    } else {\n      lines.push('مفيش جلسات تانية النهارده 🎉');\n    }\n    if (!fixed) lines.push(`لو ماذاكرتش أو خلصت بدري قولي، مثلًا: «ما ذاكرتش ${r.title}»`);\n  }\n  if (lines.length) out.push({ json: { chat: r.telegram_id, text: lines.join('\\n') } });\n}\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "id": "e06f3e30-aa33-468d-a5ee-438847fbf635",
+      "name": "Format Messages"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        720,
+        0
+      ],
+      "id": "11d5dc1e-aedc-4dcb-8f5c-e36ca5e1baa0",
+      "name": "Send",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "10 0 * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        240
+      ],
+      "id": "cc528896-5cca-47f2-9ce7-b4de08895bdd",
+      "name": "Daily 00:10"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT generate_schedule(u.id, 7) AS created FROM users u WHERE u.role='owner' AND u.is_active=true LIMIT 1",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        240,
+        240
+      ],
+      "id": "9762beda-bce3-4689-a4bf-eee49918e55d",
+      "name": "Generate Next 7 Days"
+    }
+  ],
+  "connections": {
+    "Every 2 minutes": {
+      "main": [
+        [
+          {
+            "node": "Tick",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tick": {
+      "main": [
+        [
+          {
+            "node": "Format Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Messages": {
+      "main": [
+        [
+          {
+            "node": "Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily 00:10": {
+      "main": [
+        [
+          {
+            "node": "Generate Next 7 Days",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Africa/Cairo",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": true
+  },
+  "meta": {},
+  "tags": []
+}

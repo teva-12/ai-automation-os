@@ -1,0 +1,135 @@
+{
+  "name": "AIOS - Mail Watcher",
+  "nodes": [
+    {
+      "parameters": {
+        "mailbox": "INBOX",
+        "postProcessAction": "read",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "8a4443cf-2f03-4266-a989-96a213220ede",
+      "name": "Email Trigger (IMAP)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Edit these lists any time. Only matching emails are forwarded to Telegram.\nconst DOMAINS = ['upwork.com','mostaql.com','khamsat.com','nafezly.com','kafiil.com','fiverr.com','freelancer.com','zu.edu.eg'];\nconst WORDS = /(interview|offer|invoice|payment|deadline|exam|مقابلة|تسليم|امتحان|دفع|عرض عمل)/i;\nconst strip = (h) => String(h || '').replace(/<style[\\s\\S]*?<\\/style>/gi,' ').replace(/<script[\\s\\S]*?<\\/script>/gi,' ').replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/\\s+/g,' ').trim();\nconst out = [];\nfor (const it of $input.all()) {\n  const j = it.json;\n  const from = typeof j.from === 'string' ? j.from : ((j.from && (j.from.text || (j.from.value && j.from.value[0] && j.from.value[0].address))) || '');\n  const subject = String(j.subject || '');\n  const low = from.toLowerCase();\n  const important = DOMAINS.some(d => low.includes(d)) || WORDS.test(subject) || /^\\s*\\[job\\]/i.test(subject);\n  if (!important) continue;\n  const body = (j.textPlain && String(j.textPlain).trim()) || strip(j.textHtml) || String(j.text || '');\n  out.push({ json: { from: from.slice(0, 80), subject: subject.slice(0, 150), preview: body.slice(0, 220) } });\n}\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "a590031f-4c83-4d4e-b460-70f7e7cb58db",
+      "name": "Mail Filter"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT telegram_id::text AS telegram_id FROM users WHERE role='owner' AND is_active=true LIMIT 1",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        480,
+        0
+      ],
+      "id": "5884139e-2045-498c-b6e1-d34c3dccbc85",
+      "name": "Mail Owner"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((it, i) => {\n  const m = $('Mail Filter').itemMatching(i).json;\n  return { json: { chat: it.json.telegram_id, text: `📧 ${m.from}\\n${m.subject}\\n${m.preview}` } };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ],
+      "id": "cd3ee142-9ec7-4b27-8c18-a959aa9840b2",
+      "name": "Mail Format"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_notification": "={{ $now.setZone('Africa/Cairo').hour >= 5 && $now.setZone('Africa/Cairo').hour < 13 }}"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        960,
+        0
+      ],
+      "id": "a0fb2a27-75e8-4137-9249-456fca0fa719",
+      "name": "Mail Notify",
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Email Trigger (IMAP)": {
+      "main": [
+        [
+          {
+            "node": "Mail Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail Filter": {
+      "main": [
+        [
+          {
+            "node": "Mail Owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail Owner": {
+      "main": [
+        [
+          {
+            "node": "Mail Format",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mail Format": {
+      "main": [
+        [
+          {
+            "node": "Mail Notify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Africa/Cairo",
+    "saveDataSuccessExecution": "none"
+  },
+  "meta": {},
+  "tags": []
+}

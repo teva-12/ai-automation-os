@@ -1,0 +1,175 @@
+{
+  "name": "AIOS - Site Check (one-time)",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "64692a9a-eb6b-4176-8ff4-821bfe13e701",
+      "name": "Start (manual)"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT telegram_id::text AS telegram_id FROM users WHERE role='owner' AND is_active=true LIMIT 1",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        220,
+        0
+      ],
+      "id": "9f54a4ff-d04a-46f9-bee3-fbac6f0fee11",
+      "name": "Load Owner"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Edit/extend this list freely. Public listing pages only, read-only.\nconst SITES = [\n  ['Mostaql',   'https://mostaql.com/projects'],\n  ['Khamsat',   'https://khamsat.com/community/requests'],\n  ['Nafezly',   'https://nafezly.com/projects'],\n  ['Kafiil',    'https://kafiil.com/'],\n  ['Freelancer','https://www.freelancer.com/jobs/'],\n  ['Upwork',    'https://www.upwork.com/freelance-jobs/'],\n  ['Fiverr',    'https://www.fiverr.com/']\n];\nreturn SITES.map(([name, url]) => ({ json: { name, url } }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "id": "47336c43-65e2-4629-9308-365ce72c72b2",
+      "name": "Sites"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "headers": {
+            "parameters": [
+              {
+                "name": "User-Agent",
+                "value": "Mozilla/5.0 (compatible; PersonalJobWatcher/1.0)"
+              },
+              {
+                "name": "Accept-Language",
+                "value": "ar,en;q=0.8"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        0
+      ],
+      "id": "1131241a-c3b7-4d4b-8a80-ffcc891ba322",
+      "name": "Fetch Page",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const sites = $('Sites').all();\nconst chat = $('Load Owner').first().json.telegram_id;\nconst lines = ['🔎 نتيجة فحص المواقع (قراءة فقط)\\n'];\n$input.all().forEach((it, i) => {\n  const s = sites[i].json;\n  const status = it.json.statusCode ?? (it.json.error ? 'ERR' : '?');\n  const body = String(it.json.body ?? it.json.data ?? '');\n  const title = (body.match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i) || [,''])[1].replace(/\\s+/g,' ').trim().slice(0, 60);\n  const blocked = /just a moment|cf-chl|challenge-platform|captcha|access denied|are you a robot/i.test(body);\n  const anchors = [...body.matchAll(/<a\\s[^>]*href=[\"']([^\"']+)[\"'][^>]*>([\\s\\S]*?)<\\/a>/gi)]\n    .map(m => ({ href: m[1], text: m[2].replace(/<[^>]+>/g,' ').replace(/\\s+/g,' ').trim() }))\n    .filter(a => a.text.length >= 15);\n  const verdict = status !== 200 ? '❌ مش بيرد (' + status + ')' : blocked ? '🚫 فيه حماية بتمنع البوت' : anchors.length < 5 ? '⚠️ الصفحة فاضية (غالبًا JavaScript)' : '✅ شغال';\n  lines.push(`${s.name}: ${verdict}\\nحجم: ${body.length} | روابط: ${anchors.length}${title ? ' | ' + title : ''}`);\n  if (verdict.startsWith('✅')) lines.push('أمثلة: ' + anchors.slice(0, 3).map(a => a.text.slice(0, 40)).join(' || '));\n  lines.push('');\n});\nreturn [{ json: { chat, text: lines.join('\\n').slice(0, 3900) } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ],
+      "id": "8a13bdd6-946d-409c-9cac-c00cb458f3e8",
+      "name": "Summarize"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1100,
+        0
+      ],
+      "id": "a19fc16e-9c74-4eb1-acd2-a0b80b397c5a",
+      "name": "Send Report"
+    }
+  ],
+  "connections": {
+    "Start (manual)": {
+      "main": [
+        [
+          {
+            "node": "Load Owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Owner": {
+      "main": [
+        [
+          {
+            "node": "Sites",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sites": {
+      "main": [
+        [
+          {
+            "node": "Fetch Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Page": {
+      "main": [
+        [
+          {
+            "node": "Summarize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize": {
+      "main": [
+        [
+          {
+            "node": "Send Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Africa/Cairo"
+  },
+  "meta": {},
+  "tags": []
+}

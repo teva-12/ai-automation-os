@@ -1,0 +1,13 @@
+# Permanent public URL for Telegram (replaces the temporary Cloudflare quick tunnel).
+# Put these in .env first:  NGROK_AUTHTOKEN=...   NGROK_DOMAIN=your-name.ngrok-free.dev
+# Start:  docker compose -f docker-compose.yml -f docker-compose.ngrok.yml up -d ngrok
+services:
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: aios-ngrok
+    restart: unless-stopped
+    command: ["http", "--url=${NGROK_DOMAIN}", "n8n:5678"]
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
+    depends_on: [n8n]
+    networks: [aios]
