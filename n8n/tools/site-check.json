@@ -55,7 +55,7 @@
           "headers": {
             "parameters": [
               {
-                "name": "User-Agent",
+                "name": "TEVA",
                 "value": "Mozilla/5.0 (compatible; PersonalJobWatcher/1.0)"
               },
               {
